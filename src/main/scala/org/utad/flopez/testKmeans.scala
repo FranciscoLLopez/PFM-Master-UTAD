@@ -7,6 +7,11 @@ import org.apache.spark.{ SparkConf, SparkContext }
 import org.apache.spark.SparkContext._
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.feature._
+import java.util.Calendar
+import java.io.{ FileWriter, BufferedWriter, File }
+import org.apache.spark.mllib.linalg.distributed.RowMatrix
+import java.lang.Math.sqrt
+import org.apache.spark.mllib.clustering.StreamingKMeans
 
 // kmeans sample. 
 // Variables that are text are removed and left as doubles. The positions are known.
@@ -15,25 +20,25 @@ import org.apache.spark.mllib.feature._
  * @author flopez
  */
 // Primera parte del cap 5, carga de fichero y ejecución.
-object test {
+object testKmeans {
   def main(args: Array[String]): Unit = {
-    val sc = new SparkContext(new SparkConf().setAppName("K-means").setMaster("local[*]"))
+    val sc = new SparkContext(new SparkConf().setAppName("testKmeans").setMaster("local[*]"))
     //val rawData = sc.textFile("ds/SUMMIT_Trades_15_03_27.csv")
     val rawData = sc.textFile("ds/SUMMIT_1k.csv")
     clusteringTest(rawData)
     anomalies(rawData)
   }
-  
+
   // Detect anomalies
 
-  def buildAnomalyDetector(
-      data: RDD[Vector],
-      normalizeFunction: (Vector => Vector)): (Vector => Boolean) = {
+  def buildAnomalyDetector(k: Int,
+                           data: RDD[Vector],
+                           normalizeFunction: (Vector => Vector)): (Vector => Boolean) = {
     val normalizedData = data.map(normalizeFunction)
     normalizedData.cache()
 
     val kmeans = new KMeans()
-    kmeans.setK(5)
+    kmeans.setK(k)
     kmeans.setRuns(10)
     kmeans.setEpsilon(1.0e-6)
     val model = kmeans.run(normalizedData)
@@ -50,16 +55,21 @@ object test {
     val parseFunction = buildCategoricalAndLabelFunction(rawData)
     val originalAndData = rawData.map(line => (line, parseFunction(line)._2))
     val data = originalAndData.values
-    val normalizeFunction = buildNormalizationFunction(data)
-    val anomalyDetector = buildAnomalyDetector(data, normalizeFunction)
+    val calcPCA = calculatePCA(data, 30) // 1/3 aprox of 28 variables
+    val normalizeFunction = buildNormalizationFunction(calcPCA)
+    val kValue = stats4K(calcPCA)
+    val anomalyDetector = buildAnomalyDetector(kValue, data, normalizeFunction)
     val anomalies = originalAndData.filter {
       case (original, datum) => anomalyDetector(datum)
     }.keys
-    println("ANOMALIES FROM HERE")
-    anomalies.take(10).foreach(println)
+    val outputDir = "ds/"
+    anomalies.foreach { x =>
+      //val dateString = Calendar.getInstance().getTime.toString.replace(" ", "-").replace(":", "-")
+      printToFile(outputDir, "anomalies", x)
+    }
+//    anomalies.saveAsTextFile("ds/anomalies.txt")
+
   }
-  
-  
 
   // Clustering
 
@@ -67,10 +77,12 @@ object test {
 
     val parseFunction = buildCategoricalAndLabelFunction(rawData)
     val data = rawData.map(parseFunction).values
-    val normalizedData = data.map(buildNormalizationFunction(data)).cache()
-
-    (1 to 15 by 1).map(k =>
+    val calcPCA = calculatePCA(data, 15) // 1/2 aprox of 28 variables
+    val normalizedData = data.map(buildNormalizationFunction(calcPCA)).cache()
+    val kValueMean = stats4K(normalizedData)
+    (1 to kValueMean by 1).map(k =>
       (k, clusteringScore2(normalizedData, k))).toList.foreach(println)
+
 
     normalizedData.unpersist()
   }
@@ -272,14 +284,49 @@ object test {
     }
   }
 
-  //  def calPCA(data: RDD[Vector],principalComponents:Int): Vector ={
-  //      val pca = new PCA(10)
+  def printToFile(pathName: String, fileName: String, contents: String) = {
+    val file = new File(pathName + "/" + fileName + ".txt")
+    if (!file.exists()) {
+      file.createNewFile()
+    }
 
-  // Compute the top 10 principal components.
-  //val pc: Matrix = mat.computePrincipalComponents(10) // Principal components are stored in a local dense matrix.
+    val bw = new BufferedWriter(new FileWriter(file, true))
+    bw.write(contents)
+    bw.newLine()
+    bw.close()
+  }
 
-  // Project the rows to the linear space spanned by the top 10 principal components.
-  //val projected: RowMatrix = mat.multiply(pc)
-  //      
-  //  }
+  def calculatePCA(data: RDD[Vector], numberFit: Int): RDD[Vector] = {
+    val mat: RowMatrix = new RowMatrix(data)
+    val pc: Matrix = mat.computePrincipalComponents(numberFit)
+    val projected = mat.multiply(pc).rows
+    projected
+
+  }
+
+  // Returns estimated value for K given a Vector
+  def stats4K(dataRDD: RDD[Vector]): Int = {
+
+    // Rule of Thumb
+    // k aprox = (n/2)^0.5
+    val estimatedValue = (sqrt(dataRDD.count() / 2)).toInt
+    val parKV = (1 to estimatedValue by 1).map(k => (k, clusteringScore(dataRDD, k)))
+    val vector1 = parKV.toIndexedSeq.map(f => f._2).toList
+    val vector2 = vector1.drop(1)
+    val diffTwoVector = vector1.zip(vector2).map(t => t._1 - t._2)
+    val minValue = diffTwoVector.min
+    val indexKey = diffTwoVector.toList.indexOf(minValue)
+
+    indexKey
+  }
+
+  //-------------------------------------------------------------------------
+  // Compute the WSS
+  def clusteringScore(data: RDD[Vector], k: Int): Double = {
+    val clusters = KMeans.train(data, k, 1)
+    val WSS = clusters.computeCost(data)
+
+    WSS
+  }
+
 }

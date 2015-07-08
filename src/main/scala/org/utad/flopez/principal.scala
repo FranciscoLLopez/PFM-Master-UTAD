@@ -22,17 +22,17 @@ import java.lang.Math.sqrt
  */
 // Prueba principal del ejercicio
 
-object principal {
+object principalKMeansStreaming {
   def main(args: Array[String]): Unit = {
     val conf = new SparkConf().setMaster("local[*]").setAppName("StreamingKMeansPrueba")
     val ssc = new StreamingContext(conf, Seconds(10L))
     //val rawData = sc.textFile("ds/SUMMIT_Trades_15_03_27.csv")
-    val rawData = ssc.textFileStream("ds/SUMMIT_10.csv")
+    val rawData = ssc.textFileStream("ds/SUMMIT_1k.csv")
 
     val resDStream = rawData.foreachRDD(rddSingle => {
       val parseFunction = buildCategoricalAndLabelFunction(rddSingle) // We should know explosion of variables
       val labelsAndData = rddSingle.map(parseFunction)
-      val calcPCA = calculatePCA(labelsAndData.values, 10) // 1/3 aprox of 28 variables
+      val calcPCA = calculatePCA(labelsAndData.values, 40) // 1/3 aprox of 28 variables
       val normalizedLabelsAndData = labelsAndData.mapValues(buildNormalizationFunction(calcPCA)).cache()
       //sval kValueMean = stats4K(normalizedLabelsAndData2.values)
     })

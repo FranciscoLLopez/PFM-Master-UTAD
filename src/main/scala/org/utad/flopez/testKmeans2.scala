@@ -20,18 +20,21 @@ import org.apache.spark.mllib.clustering.StreamingKMeans
  * @author flopez
  */
 // Primera parte del cap 5, carga de fichero y ejecución.
-object testKmeans {
+object testKmeans2 {
   def main(args: Array[String]): Unit = {
-    val sc = new SparkContext(new SparkConf().setAppName("testKmeans").setMaster("local[*]"))
+    val sc = new SparkContext(new SparkConf().setAppName("testKmeans2").setMaster("local[*]"))
+    val numVarPCA = 20
+    val setRunsKM = 10
     //val rawData = sc.textFile("ds/SUMMIT_Trades_15_03_27.csv")
-    val rawData = sc.textFile("ds/SUMMIT_1k.csv")
-    clusteringTest(rawData)
-    anomalies(rawData)
+    val rawData = sc.textFile("ds/SUMMIT_500.csv")
+
+    clusteringTest2(rawData,numVarPCA,setRunsKM)
+    //anomalies(rawData,numVarPCA,setRunsKM)
   }
 
   // Detect anomalies
 
-  def buildAnomalyDetector(k: Int,
+  def buildAnomalyDetector(setRunsKM:Int, k: Int,
                            data: RDD[Vector],
                            normalizeFunction: (Vector => Vector)): (Vector => Boolean) = {
     val normalizedData = data.map(normalizeFunction)
@@ -39,7 +42,7 @@ object testKmeans {
 
     val kmeans = new KMeans()
     kmeans.setK(k)
-    kmeans.setRuns(10)
+    kmeans.setRuns(setRunsKM)
     kmeans.setEpsilon(1.0e-6)
     val model = kmeans.run(normalizedData)
 
@@ -51,14 +54,14 @@ object testKmeans {
     (datum: Vector) => distToCentroid(normalizeFunction(datum), model) > threshold
   }
 
-  def anomalies(rawData: RDD[String]) = {
+  def anomalies(rawData: RDD[String],numVarPCA:Int,setRunsKM:Int) = {
     val parseFunction = buildCategoricalAndLabelFunction(rawData)
     val originalAndData = rawData.map(line => (line, parseFunction(line)._2))
     val data = originalAndData.values
-    val calcPCA = calculatePCA(data, 30) // 1/3 aprox of 28 variables
+    val calcPCA = calculatePCA(data, numVarPCA) // 
     val normalizeFunction = buildNormalizationFunction(calcPCA)
-    val kValue = stats4K(calcPCA)
-    val anomalyDetector = buildAnomalyDetector(kValue, data, normalizeFunction)
+    val kValue = stats4K(calcPCA,setRunsKM)
+    val anomalyDetector = buildAnomalyDetector(setRunsKM,kValue, data, normalizeFunction)
     val anomalies = originalAndData.filter {
       case (original, datum) => anomalyDetector(datum)
     }.keys
@@ -67,33 +70,72 @@ object testKmeans {
       //val dateString = Calendar.getInstance().getTime.toString.replace(" ", "-").replace(":", "-")
       printToFile(outputDir, "anomalies", x)
     }
-//    anomalies.saveAsTextFile("ds/anomalies.txt")
+    //    anomalies.saveAsTextFile("ds/anomalies.txt")
 
   }
 
   // Clustering
 
-  def clusteringTest(rawData: RDD[String]): Unit = {
 
+  def clusteringTest2(rawData: RDD[String],numVarPCA:Int,setRunsKM:Int): Unit = {
     val parseFunction = buildCategoricalAndLabelFunction(rawData)
-    val data = rawData.map(parseFunction).values
-    val calcPCA = calculatePCA(data, 15) // 1/2 aprox of 28 variables
-    val normalizedData = data.map(buildNormalizationFunction(calcPCA)).cache()
-    val kValueMean = stats4K(normalizedData)
-    (1 to kValueMean by 1).map(k =>
-      (k, clusteringScore2(normalizedData, k))).toList.foreach(println)
 
+    val labelsAndData = rawData.map(parseFunction)
+    val data = labelsAndData.values
+    val calcPCA = calculatePCA(data, numVarPCA) // 
+    val normalizedLabelsAndData = labelsAndData.mapValues(buildNormalizationFunction(calcPCA)).cache()
+    val kValueMean = stats4K(normalizedLabelsAndData.values,setRunsKM)
+    println("kValueMean "+kValueMean)
+    clusteringScore2(normalizedLabelsAndData, kValueMean,setRunsKM)
 
-    normalizedData.unpersist()
+    normalizedLabelsAndData.unpersist()
   }
 
-  def clusteringScore2(data: RDD[Vector], k: Int): Double = {
+
+
+  def clusteringScore2(normalizedLabelsAndData: RDD[(String, Vector)], k: Int,setRunsKM:Int) = {
     val kmeans = new KMeans()
     kmeans.setK(k)
-    kmeans.setRuns(10)
+    kmeans.setRuns(setRunsKM)
     kmeans.setEpsilon(1.0e-6)
-    val model = kmeans.run(data)
-    data.map(datum => distToCentroid(datum, model)).mean()
+
+    val model = kmeans.run(normalizedLabelsAndData.values)
+
+    // Predict cluster for each datum
+    val labelsAndClusters = normalizedLabelsAndData.mapValues(model.predict)
+    val outputDir = "ds/"
+    // Write values
+    labelsAndClusters.foreach { rdd =>
+      val modelString = model.clusterCenters.map(c => c.toString.slice(1, c.toString.length - 1)).mkString("\n")
+
+      val dateString = Calendar.getInstance().getTime.toString.replace(" ", "-").replace(":", "-")
+
+      printToFile(outputDir, dateString + "-group", modelString)
+
+    }
+
+    // Swap keys / values
+    val clustersAndLabels = labelsAndClusters.map(_.swap)
+
+    // Extract collections of labels, per cluster
+    val labelsInCluster = clustersAndLabels.groupByKey().values
+
+    // Count labels in collections
+    val labelCounts = labelsInCluster.map(_.groupBy(l => l).map(_._2.size))
+
+    // Average entropy weighted by cluster size
+    val n = normalizedLabelsAndData.count()
+
+    labelCounts.map(m => m.sum * entropy(m)).sum / n
+  }
+
+  def entropy(counts: Iterable[Int]) = {
+    val values = counts.filter(_ > 0)
+    val n: Double = values.sum
+    values.map { v =>
+      val p = v / n
+      -p * math.log(p)
+    }.sum
   }
 
   def distance(a: Vector, b: Vector) =
@@ -305,12 +347,12 @@ object testKmeans {
   }
 
   // Returns estimated value for K given a Vector
-  def stats4K(dataRDD: RDD[Vector]): Int = {
+  def stats4K(dataRDD: RDD[Vector],setRunsKM:Int): Int = {
 
     // Rule of Thumb
     // k aprox = (n/2)^0.5
     val estimatedValue = (sqrt(dataRDD.count() / 2)).toInt
-    val parKV = (1 to estimatedValue by 1).map(k => (k, clusteringScore(dataRDD, k)))
+    val parKV = (1 to estimatedValue by 1).map(k => (k, clusteringScoreWSS(dataRDD, k,setRunsKM)))
     val vector1 = parKV.toIndexedSeq.map(f => f._2).toList
     val vector2 = vector1.drop(1)
     val diffTwoVector = vector1.zip(vector2).map(t => t._1 - t._2)
@@ -322,8 +364,8 @@ object testKmeans {
 
   //-------------------------------------------------------------------------
   // Compute the WSS
-  def clusteringScore(data: RDD[Vector], k: Int): Double = {
-    val clusters = KMeans.train(data, k, 1)
+  def clusteringScoreWSS(data: RDD[Vector], k: Int,setRunsKM:Int): Double = {
+    val clusters = KMeans.train(data, k, setRunsKM)
     val WSS = clusters.computeCost(data)
 
     WSS

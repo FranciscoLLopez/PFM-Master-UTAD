@@ -3,6 +3,7 @@ package org.utad.flopez
 import org.apache.spark.mllib.clustering._
 import org.apache.spark.mllib.linalg._
 import org.apache.spark.rdd._
+import org.apache.spark.rdd.SequenceFileRDDFunctions
 import org.apache.spark.{ SparkConf, SparkContext }
 import org.apache.spark.SparkContext._
 import org.apache.spark.mllib.clustering.StreamingKMeans
@@ -12,7 +13,9 @@ import org.apache.spark.mllib.linalg.distributed.RowMatrix
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.feature.PCA
 import org.apache.spark.mllib.stat.{ MultivariateStatisticalSummary, Statistics }
+import scala.collection.mutable.ArrayBuffer
 import java.lang.Math.sqrt
+import scala.collection.mutable.SynchronizedQueue
 
 // Streaming kmeans test 
 // Variables that are text are removed and left as doubles. The positions are known.
@@ -24,58 +27,44 @@ import java.lang.Math.sqrt
 
 object principalKMeansStreaming {
   def main(args: Array[String]): Unit = {
-    val conf = new SparkConf().setMaster("local[*]").setAppName("StreamingKMeansPrueba")
+    val conf = new SparkConf().setMaster("local[*]").setAppName("principalKMeansStreaming")
+
     val ssc = new StreamingContext(conf, Seconds(10L))
-    //val rawData = sc.textFile("ds/SUMMIT_Trades_15_03_27.csv")
-    val rawData = ssc.textFileStream("ds/SUMMIT_1k.csv")
 
-    val resDStream = rawData.foreachRDD(rddSingle => {
-      val parseFunction = buildCategoricalAndLabelFunction(rddSingle) // We should know explosion of variables
-      val labelsAndData = rddSingle.map(parseFunction)
-      val calcPCA = calculatePCA(labelsAndData.values, 40) // 1/3 aprox of 28 variables
-      val normalizedLabelsAndData = labelsAndData.mapValues(buildNormalizationFunction(calcPCA)).cache()
-      //sval kValueMean = stats4K(normalizedLabelsAndData2.values)
-    })
-        
-//    val model = new StreamingKMeans()
-//      .setK(k)
-//      .setDecayFactor(1.0)
-//      .setRandomCenters(5, 0.0)
-//      
-//    model.trainOn(resDStream)
-//    val outputDir = "ds/"
-//    val predictions = model.predictOn(rows)
+    val rawData = ssc.textFileStream("ds/SUMMIT_0.csv")
 
-//    predictions.foreachRDD { rdd =>
-//      val modelString = model.latestModel().clusterCenters
-//        .map(c => c.toString.slice(1, c.toString.length - 1)).mkString("\n")
-//      val dateString = Calendar.getInstance().getTime.toString.replace(" ", "-").replace(":", "-")
-//      printToFile(outputDir, dateString + "-model", modelString)
-//
-//    }
-    
+    var lines: DStream[String] = null
+
+    val resDSPrueba = rawData.foreachRDD{ rdd =>
+           val splitData = rdd.map(_.split(","))
+           splitData.foreach(println)
+      //rawData.map(_.split(',').last).countByValue().toSeq.sortBy(_._2).reverse.foreach(println)
+      
+      
+    }
+    println("FIN")
 
   }
 
-//  def calcStream (data: DStream[String]): DStream[String] = {
-//    val arr = DStream
-//    val resDStream = data.foreachRDD(rddSingle => {
-//      val parseFunction = buildCategoricalAndLabelFunction(rddSingle) // We should know explosion of variables
-//      val labelsAndData = rddSingle.map(parseFunction)
-//      val calcPCA = calculatePCA(labelsAndData.values, 10) // 1/3 aprox of 28 variables
-//      val normalizedLabelsAndData = labelsAndData.mapValues(buildNormalizationFunction(calcPCA)).cache()
-//      // Montar cadena a partir de scc
-//    //  arr ++= normalizedLabelsAndData.collect()
-//      
-//    })
-//    resDStream
-//  }
-  
-//  def calcK(data: DStream[Vector]):Unit = {
-//      val sum:Int = sum + data.foreachRDD(rdd => stats4K(rdd))
-//      num
-//  }
-  
+  //  def calcStream (data: DStream[String]): DStream[String] = {
+  //    val arr = DStream
+  //    val resDStream = data.foreachRDD(rddSingle => {
+  //      val parseFunction = buildCategoricalAndLabelFunction(rddSingle) // We should know explosion of variables
+  //      val labelsAndData = rddSingle.map(parseFunction)
+  //      val calcPCA = calculatePCA(labelsAndData.values, 10) // 1/3 aprox of 28 variables
+  //      val normalizedLabelsAndData = labelsAndData.mapValues(buildNormalizationFunction(calcPCA)).cache()
+  //      // Montar cadena a partir de scc
+  //    //  arr ++= normalizedLabelsAndData.collect()
+  //      
+  //    })
+  //    resDStream
+  //  }
+
+  //  def calcK(data: DStream[Vector]):Unit = {
+  //      val sum:Int = sum + data.foreachRDD(rdd => stats4K(rdd))
+  //      num
+  //  }
+
   //-----------------------------------------------
   // Returns estimated value for K given a Vector
   def stats4K(dataRDD: RDD[Vector]): Int = {
@@ -110,11 +99,14 @@ object principalKMeansStreaming {
 
   }
 
+
+  
+  
+  
   // WE must know the input type
   def buildCategoricalAndLabelFunction(rawData: RDD[String]): (String => (String, Vector)) = {
 
-    val splitData = rawData.map(_.split(','))
-
+    val splitData = rawData.map(_.split(",", 28))
     // Variables to categorize.
     //val TRADE_DATE_INDEXs = splitData.map(_(0).toDouble).first
     val PRODUCT_TYPE_INDEXs = splitData.map(_(1)).distinct().collect().zipWithIndex.toMap
@@ -127,7 +119,7 @@ object principalKMeansStreaming {
     val INSTRUMENT_DESCRIPTION_INDEXs = splitData.map(_(8)).distinct().collect().zipWithIndex.toMap
     val BUY_SELL_INDEXs = splitData.map(_(9)).distinct().collect().zipWithIndex.toMap
     val TRADE_MATURITY_DATE_INDEXs = splitData.map(_(10)).distinct().collect().zipWithIndex.toMap
-    //val TRADE_MOD_DATE_INDEXs = splitData.map(_(11).toDouble)
+    val TRADE_MOD_DATE_INDEXs = splitData.map(_(11)) // Remove this variable!!! date + time => not signicant value
     //val TRADE_VERSION_INDEXs = splitData.map(_(12).toDouble)
     val TRADE_DESCRIPTION_INDEXs = splitData.map(_(13)).distinct().collect().zipWithIndex.toMap
     //val EFFECTIVE_DATE_INDEXs = splitData.map(_(14).toDouble)
@@ -146,40 +138,41 @@ object principalKMeansStreaming {
     //val REMAINING_NOTIONAL_CFTR_INDEXs = splitData.map(_(27).toDouble)
 
     (line: String) => {
-      val buffer = line.split(",", -1).toBuffer
+      val buffer = line.split(",", 28).toBuffer
 
-      val TRADE_DATE_INDEX = buffer.remove(0).toDouble
-      val PRODUCT_TYPE_INDEX = buffer.remove(0)
-      val TRADE_ID_INDEX = buffer.remove(0)
+      //val TRADE_DATE_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
+      val PRODUCT_TYPE_INDEX = buffer.remove(1)
+      val TRADE_ID_INDEX = buffer.remove(1)
       val label = TRADE_ID_INDEX
-      val BOOK_ID_INDEX = buffer.remove(0)
-      val COUNTERPARTY_INDEX = buffer.remove(0)
-      val START_DATE_INDEX = buffer.remove(0).toDouble
-      val QUANTITY_INDEX = buffer.remove(0).toDouble
-      val CURRENCY_INDEX = buffer.remove(0)
-      val INSTRUMENT_DESCRIPTION_INDEX = buffer.remove(0)
-      val BUY_SELL_INDEX = buffer.remove(0)
-      val TRADE_MATURITY_DATE_INDEX = buffer.remove(0)
-      val TRADE_MOD_DATE_INDEX = buffer.remove(0).toDouble
-      val TRADE_VERSION_INDEX = buffer.remove(0).toDouble
-      val TRADE_DESCRIPTION_INDEX = buffer.remove(0)
-      val EFFECTIVE_DATE_INDEX = buffer.remove(0).toDouble
-      val LEGAL_ENTITY_INDEX = buffer.remove(0)
-      val TRADING_DESK_INDEX = buffer.remove(0)
-      val SYMBOL_INDEX = buffer.remove(0)
-      val ORIGINAL_NOTIONAL_INDEX = buffer.remove(0).toDouble
-      val NOTIONAL_INDEX = buffer.remove(0).toDouble
-      val TYPE_COL = buffer.remove(0)
-      val SEC_AMOUNT_INDEX = buffer.remove(0).toDouble
-      val STATUS_INDEX = buffer.remove(0)
-      val AUDIT_ACTION_INDEX = buffer.remove(0)
-      val TYPE_CFTR_COL = buffer.remove(0)
-      val CURRENCY_CFTR_INDEX = buffer.remove(0)
-      val NOTIONAL_CFTR_INDEX = buffer.remove(0).toDouble
-      val REMAINING_NOTIONAL_CFTR_INDEX = buffer.remove(0).toDouble
+      val BOOK_ID_INDEX = buffer.remove(1)
+      val COUNTERPARTY_INDEX = buffer.remove(1)
+      //val START_DATE_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
+      //val QUANTITY_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
+      val CURRENCY_INDEX = buffer.remove(3)
+      val INSTRUMENT_DESCRIPTION_INDEX = buffer.remove(3)
+      val BUY_SELL_INDEX = buffer.remove(3)
+      val TRADE_MATURITY_DATE_INDEX = buffer.remove(3)
+      val TRADE_MOD_DATE_INDEX = buffer.remove(3)
+      //val TRADE_VERSION_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
+      val TRADE_DESCRIPTION_INDEX = buffer.remove(4)
+      //val EFFECTIVE_DATE_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
+      val LEGAL_ENTITY_INDEX = buffer.remove(5)
+      val TRADING_DESK_INDEX = buffer.remove(5)
+      val SYMBOL_INDEX = buffer.remove(5)
+      //val ORIGINAL_NOTIONAL_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
+      //val NOTIONAL_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
+      val TYPE_COL = buffer.remove(7)
+      //val SEC_AMOUNT_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
+      val STATUS_INDEX = buffer.remove(8)
+      val AUDIT_ACTION_INDEX = buffer.remove(8)
+      val TYPE_CFTR_COL = buffer.remove(8)
+      val CURRENCY_CFTR_INDEX = buffer.remove(8)
+      //val NOTIONAL_CFTR_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
+      //val REMAINING_NOTIONAL_CFTR_INDEX = buffer.remove(0).map(x => if x.Equals("") 0 else x).toDouble
 
       // None must be left
-      val vector = buffer.map(_.toDouble)
+      // Values = "spaces" get into 0.0 value
+      val vector = buffer.map(x => if ("".equals(x)) 0 else x.toDouble)
 
       val newPRODUCT_TYPE_INDEX = new Array[Double](PRODUCT_TYPE_INDEXs.size)
       newPRODUCT_TYPE_INDEX(PRODUCT_TYPE_INDEXs(PRODUCT_TYPE_INDEX)) = 1.0
@@ -234,34 +227,34 @@ object principalKMeansStreaming {
 
       // Rebuild vector
 
-      vector.insert(1, TRADE_DATE_INDEX) //0
+      //vector.insert(1, TRADE_DATE_INDEX) //0
       vector.insertAll(1, newPRODUCT_TYPE_INDEX) //1
       vector.insertAll(1, newTRADE_ID_INDEX) //2
       vector.insertAll(1, newBOOK_ID_INDEX) //3
       vector.insertAll(1, newCOUNTERPARTY_INDEX) //4
-      vector.insert(1, START_DATE_INDEX) //5
-      vector.insert(1, QUANTITY_INDEX) //6
+      //vector.insert(1, START_DATE_INDEX) //5
+      //vector.insert(1, QUANTITY_INDEX) //6
       vector.insertAll(1, newCURRENCY_INDEX) //7
       vector.insertAll(1, newINSTRUMENT_DESCRIPTION_INDEX) //8
       vector.insertAll(1, newBUY_SELL_INDEX) //9
       vector.insertAll(1, newTRADE_MATURITY_DATE_INDEX) //10
-      vector.insert(1, TRADE_MOD_DATE_INDEX) //11
-      vector.insert(1, TRADE_VERSION_INDEX) //12
+      //vector.insert(1, TRADE_MOD_DATE_INDEX) //11  no se inserta, fecha + hora
+      //vector.insert(1, TRADE_VERSION_INDEX) //12
       vector.insertAll(1, newTRADE_DESCRIPTION_INDEX) //13
-      vector.insert(1, EFFECTIVE_DATE_INDEX) //14
+      //vector.insert(1, EFFECTIVE_DATE_INDEX) //14
       vector.insertAll(1, newLEGAL_ENTITY_INDEX) //15
       vector.insertAll(1, newTRADING_DESK_INDEX) //16
       vector.insertAll(1, newSYMBOL_INDEX) //17
-      vector.insert(1, ORIGINAL_NOTIONAL_INDEX) //18
-      vector.insert(1, NOTIONAL_INDEX) //19
+      //vector.insert(1, ORIGINAL_NOTIONAL_INDEX) //18
+      //vector.insert(1, NOTIONAL_INDEX) //19
       vector.insertAll(1, newTYPE_COL) //20
-      vector.insert(1, SEC_AMOUNT_INDEX) //21
+      //vector.insert(1, SEC_AMOUNT_INDEX) //21
       vector.insertAll(1, newSTATUS_INDEX) //22
       vector.insertAll(1, newAUDIT_ACTION_INDEX) //23
       vector.insertAll(1, newTYPE_CFTR_COL) //24      
       vector.insertAll(1, newCURRENCY_CFTR_INDEX) //25  
-      vector.insert(1, NOTIONAL_CFTR_INDEX) //26
-      vector.insert(1, REMAINING_NOTIONAL_CFTR_INDEX) //27
+      //vector.insert(1, NOTIONAL_CFTR_INDEX) //26
+      //vector.insert(1, REMAINING_NOTIONAL_CFTR_INDEX) //27
 
       (label, Vectors.dense(vector.toArray))
     }

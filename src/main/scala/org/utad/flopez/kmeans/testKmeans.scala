@@ -120,7 +120,7 @@ object testKmeans {
     val kEstimated = functions.stats4K(normalizedLabelsAndData.values)
 
     (1 to kEstimated by 1).map(k =>
-      (k, clusteringScore.clusteringScore3(normalizedLabelsAndData, k))).toList.foreach { x =>
+      (k, clusteringScore.clusteringScore3(normalizedLabelsAndData,outputFolder, k))).toList.foreach { x =>
       filesOps.printToFile(outputFolder, "test4_cluster", x.toString)
     }
 

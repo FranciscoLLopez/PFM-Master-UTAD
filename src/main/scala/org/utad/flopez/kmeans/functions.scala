@@ -4,6 +4,7 @@ import org.apache.spark.rdd._
 import org.apache.spark.mllib.linalg._
 import org.apache.spark.mllib.linalg.distributed.RowMatrix
 import org.apache.spark.mllib.clustering._
+import org.apache.spark.streaming.dstream._
 import java.lang.Math.sqrt
 
 /**
@@ -242,88 +243,6 @@ object functions {
       // Values = "spaces" get into 0.0 value
       val vector = buffer.map(x => if ("".equals(x)) 0 else x.toDouble)
 
-      //      val newPRODUCT_TYPE_INDEX = new Array[Double](PRODUCT_TYPE_INDEXs.size)
-      //      newPRODUCT_TYPE_INDEX(PRODUCT_TYPE_INDEXs(PRODUCT_TYPE_INDEX)) = 1.0
-      //
-      //      val newTRADE_ID_INDEX = new Array[Double](TRADE_ID_INDEXs.size)
-      //      newTRADE_ID_INDEX(TRADE_ID_INDEXs(TRADE_ID_INDEX)) = 1.0
-      //
-      //      val newBOOK_ID_INDEX = new Array[Double](BOOK_ID_INDEXs.size)
-      //      newBOOK_ID_INDEX(BOOK_ID_INDEXs(BOOK_ID_INDEX)) = 1.0
-      //
-      //      val newBUY_SELL_INDEX = new Array[Double](BUY_SELL_INDEXs.size)
-      //      newBUY_SELL_INDEX(BUY_SELL_INDEXs(BUY_SELL_INDEX)) = 1.0
-      //
-      //      val newCOUNTERPARTY_INDEX = new Array[Double](COUNTERPARTY_INDEXs.size)
-      //      newCOUNTERPARTY_INDEX(COUNTERPARTY_INDEXs(COUNTERPARTY_INDEX)) = 1.0
-      //
-      //      val newCURRENCY_INDEX = new Array[Double](CURRENCY_INDEXs.size)
-      //      newCURRENCY_INDEX(CURRENCY_INDEXs(CURRENCY_INDEX)) = 1.0
-      //
-      //      val newINSTRUMENT_DESCRIPTION_INDEX = new Array[Double](INSTRUMENT_DESCRIPTION_INDEXs.size)
-      //      newINSTRUMENT_DESCRIPTION_INDEX(INSTRUMENT_DESCRIPTION_INDEXs(INSTRUMENT_DESCRIPTION_INDEX)) = 1.0
-      //
-      //      val newTRADE_MATURITY_DATE_INDEX = new Array[Double](TRADE_MATURITY_DATE_INDEXs.size)
-      //      newTRADE_MATURITY_DATE_INDEX(TRADE_MATURITY_DATE_INDEXs(TRADE_MATURITY_DATE_INDEX)) = 1.0
-      //
-      //      val newTRADE_DESCRIPTION_INDEX = new Array[Double](TRADE_DESCRIPTION_INDEXs.size)
-      //      newTRADE_DESCRIPTION_INDEX(TRADE_DESCRIPTION_INDEXs(TRADE_DESCRIPTION_INDEX)) = 1.0
-      //
-      //      val newLEGAL_ENTITY_INDEX = new Array[Double](LEGAL_ENTITY_INDEXs.size)
-      //      newLEGAL_ENTITY_INDEX(LEGAL_ENTITY_INDEXs(LEGAL_ENTITY_INDEX)) = 1.0
-      //
-      //      val newTRADING_DESK_INDEX = new Array[Double](TRADING_DESK_INDEXs.size)
-      //      newTRADING_DESK_INDEX(TRADING_DESK_INDEXs(TRADING_DESK_INDEX)) = 1.0
-      //
-      //      val newSYMBOL_INDEX = new Array[Double](SYMBOL_INDEXs.size)
-      //      newSYMBOL_INDEX(SYMBOL_INDEXs(SYMBOL_INDEX)) = 1.0
-      //
-      //      val newTYPE_COL = new Array[Double](TYPE_COLs.size)
-      //      newTYPE_COL(TYPE_COLs(TYPE_COL)) = 1.0
-      //
-      //      val newSTATUS_INDEX = new Array[Double](STATUS_INDEXs.size)
-      //      newSTATUS_INDEX(STATUS_INDEXs(STATUS_INDEX)) = 1.0
-      //
-      //      val newAUDIT_ACTION_INDEX = new Array[Double](AUDIT_ACTION_INDEXs.size)
-      //      newAUDIT_ACTION_INDEX(AUDIT_ACTION_INDEXs(AUDIT_ACTION_INDEX)) = 1.0
-      //
-      //      val newTYPE_CFTR_COL = new Array[Double](TYPE_CFTR_COLs.size)
-      //      newTYPE_CFTR_COL(TYPE_CFTR_COLs(TYPE_CFTR_COL)) = 1.0
-      //
-      //      val newCURRENCY_CFTR_INDEX = new Array[Double](CURRENCY_CFTR_INDEXs.size)
-      //      newCURRENCY_CFTR_INDEX(CURRENCY_CFTR_INDEXs(CURRENCY_CFTR_INDEX)) = 1.0
-
-      // Rebuild vector
-
-      //      //vector.insert(1, TRADE_DATE_INDEX) //0
-      //      vector.insertAll(1, newPRODUCT_TYPE_INDEX) //1
-      //      vector.insertAll(1, newTRADE_ID_INDEX) //2
-      //      vector.insertAll(1, newBOOK_ID_INDEX) //3
-      //      vector.insertAll(1, newCOUNTERPARTY_INDEX) //4
-      //      //vector.insert(1, START_DATE_INDEX) //5
-      //      //vector.insert(1, QUANTITY_INDEX) //6
-      //      vector.insertAll(1, newCURRENCY_INDEX) //7
-      //      vector.insertAll(1, newINSTRUMENT_DESCRIPTION_INDEX) //8
-      //      vector.insertAll(1, newBUY_SELL_INDEX) //9
-      //      vector.insertAll(1, newTRADE_MATURITY_DATE_INDEX) //10
-      //      //vector.insert(1, TRADE_MOD_DATE_INDEX) //11  no se inserta, fecha + hora
-      //      //vector.insert(1, TRADE_VERSION_INDEX) //12
-      //      vector.insertAll(1, newTRADE_DESCRIPTION_INDEX) //13
-      //      //vector.insert(1, EFFECTIVE_DATE_INDEX) //14
-      //      vector.insertAll(1, newLEGAL_ENTITY_INDEX) //15
-      //      vector.insertAll(1, newTRADING_DESK_INDEX) //16
-      //      vector.insertAll(1, newSYMBOL_INDEX) //17
-      //      //vector.insert(1, ORIGINAL_NOTIONAL_INDEX) //18
-      //      //vector.insert(1, NOTIONAL_INDEX) //19
-      //      vector.insertAll(1, newTYPE_COL) //20
-      //      //vector.insert(1, SEC_AMOUNT_INDEX) //21
-      //      vector.insertAll(1, newSTATUS_INDEX) //22
-      //      vector.insertAll(1, newAUDIT_ACTION_INDEX) //23
-      //      vector.insertAll(1, newTYPE_CFTR_COL) //24      
-      //      vector.insertAll(1, newCURRENCY_CFTR_INDEX) //25  
-      //      //vector.insert(1, NOTIONAL_CFTR_INDEX) //26
-      //      //vector.insert(1, REMAINING_NOTIONAL_CFTR_INDEX) //27
-
       (label, Vectors.dense(vector.toArray))
     }
   }
@@ -337,6 +256,26 @@ object functions {
 
     estimatedValue
   }
+
+  // Returns estimated value for K given DStream
+  def stats4KDStream(dStream: DStream[Vector]): Int = {
+    var count = 0
+    var sum = 0
+
+    dStream.foreachRDD { rdd =>
+      sum = sum + stats4K(rdd)
+      count = count + 1
+    }
+
+    var res = 0
+    try {
+      res = (sum / count)
+    } catch {
+      case t: Throwable => t.printStackTrace() // TODO: handle error
+    }
+    if (res > 0) res else 0
+  }
+
   // Funcion de normalizacion de un RDD 
   def buildNormalizationFunction(data: RDD[Vector]): (Vector => Vector) = {
     val dataAsArray = data.map(_.toArray)
@@ -366,7 +305,6 @@ object functions {
     val pc: Matrix = mat.computePrincipalComponents(numberFit)
     val projected = mat.multiply(pc).rows
     projected
-
   }
 
   def distToCentroid(datum: Vector, model: KMeansModel) = {
@@ -378,4 +316,26 @@ object functions {
   def distance(a: Vector, b: Vector) =
     math.sqrt(a.toArray.zip(b.toArray).map(p => p._1 - p._2).map(d => d * d).sum)
 
+  //---------------------------------------------------------------------------------------------------------------------------------
+  // Detect anomalies
+  def buildAnomalyDetector(
+    data: RDD[Vector],
+    normalizeFunction: (Vector => Vector)): (Vector => Boolean) = {
+    val normalizedData = data.map(normalizeFunction)
+    normalizedData.cache()
+    val kEstimated = functions.stats4K(normalizedData)
+
+    val kmeans = new KMeans()
+    kmeans.setK(kEstimated)
+    kmeans.setRuns(10)
+    kmeans.setEpsilon(1.0e-6)
+    val model = kmeans.run(normalizedData)
+
+    normalizedData.unpersist()
+
+    val distances = normalizedData.map(datum => functions.distToCentroid(datum, model))
+    val threshold = distances.top(100).last
+
+    (datum: Vector) => functions.distToCentroid(normalizeFunction(datum), model) > threshold
+  }
 }

@@ -3,6 +3,8 @@ package org.utad.flopez.kmeans
 import org.apache.spark.rdd._
 import org.apache.spark.mllib.linalg._
 import org.apache.spark.mllib.clustering._
+import org.apache.spark.streaming.dstream._
+import org.apache.spark.SparkContext
 
 /**
  * @author flopez
@@ -15,6 +17,7 @@ object clusteringScore {
     data.map(datum => distToCentroid(datum, model)).mean()
   }
 
+
   def clusteringScore2(data: RDD[Vector], k: Int): Double = {
     val kmeans = new KMeans()
     kmeans.setK(k)
@@ -24,7 +27,7 @@ object clusteringScore {
     data.map(datum => distToCentroid(datum, model)).mean()
   }
 
-  def clusteringScore3(normalizedLabelsAndData: RDD[(String, Vector)], k: Int) = {
+  def clusteringScore3(normalizedLabelsAndData: RDD[(String, Vector)], outputFolder: String, k: Int) = {
     val kmeans = new KMeans()
     kmeans.setK(k)
     kmeans.setRuns(10)
@@ -48,6 +51,7 @@ object clusteringScore {
     val n = normalizedLabelsAndData.count()
 
     labelCounts.map(m => m.sum * entropy(m)).sum / n
+
   }
 
   def entropy(counts: Iterable[Int]) = {
@@ -62,10 +66,24 @@ object clusteringScore {
   def distance(a: Vector, b: Vector) =
     math.sqrt(a.toArray.zip(b.toArray).map(p => p._1 - p._2).map(d => d * d).sum)
 
+  def distanceDStream(a: Array[Vector], b: RDD[Vector], sc: SparkContext): Array[Double] = {
+    val bArray = b.collect()
+    val prueba = a.zip(bArray).map(x => distance(x._1, x._2))
+
+    prueba
+
+  }
+
   def distToCentroid(datum: Vector, model: KMeansModel) = {
     val cluster = model.predict(datum)
     val centroid = model.clusterCenters(cluster)
     distance(centroid, datum)
+  }
+
+  def distToCentroidDStream(datum: RDD[Vector], model: StreamingKMeansModel, sc: SparkContext) = {
+    val cluster = model.predict(datum)
+    val centroid = model.clusterCenters
+    distanceDStream(centroid, datum, sc)
   }
 }
 

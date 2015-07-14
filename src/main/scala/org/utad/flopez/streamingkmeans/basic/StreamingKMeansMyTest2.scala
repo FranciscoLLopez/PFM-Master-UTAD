@@ -1,5 +1,11 @@
-package org.utad.flopez
+package org.utad.flopez.streamingkmeans.basic
 
+import java.util.Calendar
+import java.io.{ FileWriter, BufferedWriter, File }
+import org.apache.spark.SparkConf
+import org.apache.spark.mllib.clustering.StreamingKMeans
+import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.streaming.{ Seconds, StreamingContext }
 import org.apache.spark.mllib.clustering._
 import org.apache.spark.mllib.linalg._
 import org.apache.spark.rdd._
@@ -11,98 +17,75 @@ import org.apache.spark.streaming.{ Seconds, StreamingContext }
 import org.apache.spark.streaming.dstream._
 import org.apache.spark.mllib.linalg.distributed.RowMatrix
 import org.apache.spark.mllib.linalg.Vectors
-import org.apache.spark.mllib.feature.PCA
 import org.apache.spark.mllib.stat.{ MultivariateStatisticalSummary, Statistics }
 import scala.collection.mutable.ArrayBuffer
 import java.lang.Math.sqrt
 import scala.collection.mutable.SynchronizedQueue
 
-// Streaming kmeans test 
-// Variables that are text are removed and left as doubles. The positions are known.
+import java.io.{FileReader, BufferedReader}
+import java.util.Properties
+
+
+import kafka.producer.{KeyedMessage, Producer, ProducerConfig}
+import org.apache.spark.mllib.clustering.StreamingKMeans
+import org.apache.spark.mllib.linalg.Vector
+import org.apache.spark.rdd.RDD
+import org.apache.spark.{SparkEnv, SparkContext}
+import org.apache.spark.streaming.dstream.DStream
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+import org.apache.spark.streaming.StreamingContext._
+import org.apache.spark.streaming.kafka._
+import kafka.serializer.StringDecoder
+
 
 /**
  * @author flopez
  */
-// Prueba principal del ejercicio
+object StreamingKMeansMyTest2 {
 
-object principalKMeansStreaming {
-  def main(args: Array[String]): Unit = {
-    val conf = new SparkConf().setMaster("local[*]").setAppName("principalKMeansStreaming")
+  def main(args: Array[String]) {
 
-    val ssc = new StreamingContext(conf, Seconds(10L))
+    val conf = new SparkConf().setMaster("local[*]").setAppName("StreamingKMeansMyTest2")
+    val ssc = new StreamingContext(conf, Seconds(2L))
 
-    val rawData = ssc.textFileStream("ds/SUMMIT_0.csv")
+    // Load and parse the data file.
+    val rows1 = ssc.textFileStream("ds/SUMMIT_500.csv")
 
-    var lines: DStream[String] = null
+    val trainVectors: DStream[Vector] = rows1.transform(rdd => toVector(rdd))
+    
+    val model = new StreamingKMeans()
+      .setK(3)
+      .setDecayFactor(1.0)
+      .setRandomCenters(3, 0.0)
 
-    val resDSPrueba = rawData.foreachRDD{ rdd =>
-           val splitData = rdd.map(_.split(","))
-           splitData.foreach(println)
-      //rawData.map(_.split(',').last).countByValue().toSeq.sortBy(_._2).reverse.foreach(println)
-      
-      
+    model.trainOn(trainVectors)
+    val outputDir = "ds/skmeansmytest2/"
+    val predictions = model.predictOn(trainVectors)
+
+    predictions.foreachRDD { rdd =>
+      val modelString = model.latestModel().clusterCenters
+        .map(c => c.toString.slice(1, c.toString.length - 1)).mkString("\n")
+      val dateString = Calendar.getInstance().getTime.toString.replace(" ", "-").replace(":", "-")
+      printToFile(outputDir, dateString + "-model-cluster", modelString)
     }
-    println("FIN")
 
+    ssc.start()
+    ssc.awaitTermination()
   }
 
-  //  def calcStream (data: DStream[String]): DStream[String] = {
-  //    val arr = DStream
-  //    val resDStream = data.foreachRDD(rddSingle => {
-  //      val parseFunction = buildCategoricalAndLabelFunction(rddSingle) // We should know explosion of variables
-  //      val labelsAndData = rddSingle.map(parseFunction)
-  //      val calcPCA = calculatePCA(labelsAndData.values, 10) // 1/3 aprox of 28 variables
-  //      val normalizedLabelsAndData = labelsAndData.mapValues(buildNormalizationFunction(calcPCA)).cache()
-  //      // Montar cadena a partir de scc
-  //    //  arr ++= normalizedLabelsAndData.collect()
-  //      
-  //    })
-  //    resDStream
-  //  }
-
-  //  def calcK(data: DStream[Vector]):Unit = {
-  //      val sum:Int = sum + data.foreachRDD(rdd => stats4K(rdd))
-  //      num
-  //  }
-
-  //-----------------------------------------------
-  // Returns estimated value for K given a Vector
-  def stats4K(dataRDD: RDD[Vector]): Int = {
-
-    // Rule of Thumb
-    // k aprox = (n/2)^0.5
-    val estimatedValue = (sqrt(dataRDD.count() / 2)).toInt
-    val parKV = (1 to estimatedValue by 1).map(k => (k, clusteringScore(dataRDD, k)))
-    val vector1 = parKV.toIndexedSeq.map(f => f._2).toList
-    val vector2 = vector1.drop(1)
-    val diffTwoVector = vector1.zip(vector2).map(t => t._1 - t._2)
-    val minValue = diffTwoVector.min
-    val indexKey = diffTwoVector.toList.indexOf(minValue)
-
-    indexKey
+  def toVector(rdd: RDD[String]): RDD[Vector] = {
+    val parseFunction = buildCategoricalAndLabelFunction(rdd)
+    val originalAndData: RDD[(String, Vector)] = rdd.map(line => (line, parseFunction(line)._2))
+    originalAndData.values
   }
 
-  //-------------------------------------------------------------------------
-  // Compute the WSS
-  def clusteringScore(data: RDD[Vector], k: Int): Double = {
-    val clusters = KMeans.train(data, k, 1)
-    val WSS = clusters.computeCost(data)
-
-    WSS
+  def printToFile(pathName: String, fileName: String, contents: String) = {
+    val file = new File(pathName + "/" + fileName + ".txt")
+    val bw = new BufferedWriter(new FileWriter(file))
+    bw.write(contents)
+    bw.close()
   }
 
-  def calculatePCA(data: RDD[Vector], numberFit: Int): RDD[Vector] = {
-    val mat: RowMatrix = new RowMatrix(data)
-    val pc: Matrix = mat.computePrincipalComponents(numberFit)
-    val projected = mat.multiply(pc).rows
-    projected
-
-  }
-
-
-  
-  
-  
   // WE must know the input type
   def buildCategoricalAndLabelFunction(rawData: RDD[String]): (String => (String, Vector)) = {
 
@@ -277,8 +260,58 @@ object principalKMeansStreaming {
     (datum: Vector) => {
       val normalizedArray = (datum.toArray, means, stdevs).zipped.map(
         (value, mean, stdev) =>
-          if (stdev <= 0) (value - mean) else (value - mean) / stdev)
+          if (stdev <= 0) (value - mean) else {
+            val d = (value - mean) / stdev
+            if (Double.NaN.equals(d)) 0.0 else d
+          })
       Vectors.dense(normalizedArray)
+    }
+  }
+
+  def distance(a: Vector, b: Vector) =
+    math.sqrt(a.toArray.zip(b.toArray).map(p => p._1 - p._2).map(d => d * d).sum)
+
+  def distToCentroid(datum: Vector, model: KMeansModel) = {
+    val cluster = model.predict(datum)
+    val centroid = model.clusterCenters(cluster)
+    distance(centroid, datum)
+  }
+
+  def buildAnomalyDetector(
+    data: RDD[Vector],
+    normalizeFunction: (Vector => Vector)): (Vector => Boolean) = {
+    val normalizedData = data.map(normalizeFunction)
+    normalizedData.cache()
+
+    val kmeans = new KMeans()
+    kmeans.setK(150)
+    kmeans.setRuns(10)
+    kmeans.setEpsilon(1.0e-6)
+    val model = kmeans.run(normalizedData)
+
+    normalizedData.unpersist()
+
+    val distances = normalizedData.map(datum => distToCentroid(datum, model))
+    val threshold = distances.top(100).last
+
+    (datum: Vector) => distToCentroid(normalizeFunction(datum), model) > threshold
+  }
+
+  def anomalies(rawData: RDD[String]) = {
+    val parseFunction = buildCategoricalAndLabelFunction(rawData)
+    val originalAndData = rawData.map(line => (line, parseFunction(line)._2))
+    val data = originalAndData.values
+    val normalizeFunction = buildNormalizationFunction(data)
+    val anomalyDetector = buildAnomalyDetector(data, normalizeFunction)
+    val anomalies = originalAndData.filter {
+      case (original, datum) => anomalyDetector(datum)
+    }.keys
+    println("ANOMALIES")
+    //anomalies.take(10).foreach(println)
+
+    val outputDir = "ds/"
+    anomalies.take(10).foreach { x =>
+      printToFile(outputDir, "anomalies-full", x)
     }
   }
 
